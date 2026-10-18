@@ -1,11 +1,441 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>temp html</title>
-</head>
-<body>
-    <h1>Yaa!!</h1>
-</body>
-</html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>スクランブルエッグをつくろう</title>
+<style>
+body{margin:0;background:#ffefc2;color:#4a3420;font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+#app{max-width:480px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box}
+.hide{display:none!important}
+canvas{width:100%;border-radius:14px;background:#f7d98a;touch-action:none;display:block}
+button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:12px 14px;background:#e8a317;color:#3b2606;cursor:pointer}
+button:disabled{opacity:.4}button.sub{background:#fff;border:2px solid #e8a317}
+#done{background:#d9482b;color:#fff;font-size:18px;position:sticky;bottom:8px}
+#steps{display:flex;gap:4px}#steps span{flex:1;text-align:center;font-size:11px;padding:5px 0;border-radius:8px;background:#fff8;opacity:.6}
+#steps .on{background:#e8a317;opacity:1;font-weight:700}#steps .ok{opacity:1}
+#ctl{display:flex;gap:8px;flex-wrap:wrap}#ctl button{flex:1}
+#hint,#note{font-size:14px;min-height:20px}
+h1{font-size:28px;margin:16px 0 4px}h2{font-size:22px;margin:8px 0;line-height:1.35;text-align:center}
+.card{background:#fff9;border-radius:12px;padding:10px 12px;font-size:15px;line-height:1.6}
+#done.glow{animation:gl 1s infinite alternate}@keyframes gl{from{box-shadow:0 0 0 0 #ffe27a}to{box-shadow:0 0 14px 6px #ffe27a}}
+#rScore{font-size:44px;font-weight:800;text-align:center}
+</style></head><body><div id="app">
+
+<section id="scrTitle">
+<h1>🍳 スクランブルエッグをつくろう</h1>
+<div class="card"><b>あそびかた</b><ol style="margin:6px 0;padding-left:20px"><li>🧺 カゴの卵をタップで取り、タップでヒビ、ボウルの好きな場所へドラッグして割り入れる</li><li>🥄 殻はタップで取り除く。ドラッグで卵液を混ぜる(混ぜすぎると泡立つ)</li><li>🧈 バター皿をタップで取り、フライパンへドラッグして置く。ダイヤルで火力を調整し、溶けたらドラッグで広げる</li><li>🥣 ボウルをタップで持ち上げ、フライパンを押している間、その場所に卵液が注がれる(外すとこぼれる。残すと減点)</li><li>🥢 ボウルをタップで置き、固まり始めたらドラッグで底から混ぜる。取っ手のタップで火から外す/戻す(余熱調理)</li><li>✅ ふわとろを見極めて「完成!」。準備はいつでも飛ばせます</li></ol>完成ボタンはいつでも押せます。<br><label><input type="checkbox" id="hintOn"> ヒントを表示</label>　<label><input type="checkbox" id="sndOn" checked> サウンド</label></div>
+<button id="start" style="margin-top:10px;width:100%;font-size:18px">調理スタート</button>
+</section>
+
+<section id="scrGame" class="hide" style="display:flex;flex-direction:column;gap:8px">
+<div id="steps"></div>
+<canvas id="cv" width="360" height="360"></canvas>
+<div id="hint"></div>
+<div id="heatBox" class="card hide" style="display:flex;justify-content:center"><canvas id="dial" width="140" height="140" style="width:120px;height:120px;background:transparent;border-radius:0;touch-action:none"></canvas></div>
+<div id="ctl"></div>
+<button id="done">🍽 完成!</button>
+</section>
+
+<section id="scrResult" class="hide" style="display:flex;flex-direction:column;gap:8px">
+<h2 id="rTitle"></h2>
+<canvas id="rcv" width="360" height="320"></canvas>
+<div id="rScore"></div>
+<div id="rAdv" class="card"></div>
+<div id="rCom" class="card"></div>
+<div id="rBrk" class="card" style="white-space:pre-line"></div>
+<button id="share">Xで共有</button>
+<div id="note"></div>
+<img id="shareImg" class="hide" style="width:100%;border-radius:12px"><div id="imgNote" class="hide" style="font-size:15px;font-weight:700">↑ 📋 Xの投稿欄で「ペースト」すると、この画像を貼り付けて添付できます。(コピーできない場合は、画像を長押しして保存)</div>
+<button id="retry" class="sub">もう一度遊ぶ</button>
+</section>
+</div>
+
+<script>
+/* ===================================================================
+   ★ 文言はすべてここ(TEXT)にまとめています。自由に書き換えてください。
+   miss の並び順 = 「最も深刻なミス」の優先順位(上ほど深刻)。
+   [題名, 改善点, コメント] の順。
+   =================================================================== */
+const GAME_NAME='スクランブルエッグをつくろう';
+const TEXT={
+ miss:{
+  noEgg:['卵との出会いを待ち続けるスクランブルエッグ','まず卵を割りましょう。皿には何も載っていません。','皿には何もない。これはもはや、哲学だ。'],
+  rawEgg:['生卵のまま旅立ったスクランブルエッグ','卵液のままです。バターを溶かし、卵液をフライパンへ入れ、しっかり加熱しましょう。','……まだ火にも触れていないぞ!'],
+  burnt:['炭化の向こう側へ行ってしまったスクランブルエッグ','真っ黒に焦げています。火力を下げ、こまめに混ぜ、早めに完成を押しましょう。','料理というより、化石の発掘だ。'],
+  shellMany:['カルシウム祭り開催中のスクランブルエッグ','殻が大量に混入しています。割るたびに、殻が入っていないか確認しましょう。','噛むたびにガリッ。歯医者さんが拍手している。'],
+  eggExtreme:['卵の山に埋もれたスクランブルエッグ','卵の数が極端です。3〜5個が目安です。','フライパンが悲鳴を上げ、冷蔵庫は空になった。'],
+  under:['卵料理を名乗るには早すぎるスクランブルエッグ','加熱不足です。もう少し火を通してから完成を押しましょう。','とろとろを通り越して、ただの卵液だ。'],
+  over:['ゴムの食感を追求したスクランブルエッグ','加熱しすぎです。火力を下げ、もう少し早く完成ボタンを押しましょう。','弾力には自信がありそう。ただしスクランブルエッグに求められている弾力だろうか。'],
+  heatHigh:['外だけ急いで焼けたスクランブルエッグ','火力が強すぎます。中火前後に抑えましょう。','急ぎすぎた卵は、外が焦げて中が後悔している。'],
+  spillLiquid:['調理台まで卵液が旅したスクランブルエッグ','卵液はフライパンの上に注ぎましょう。外にこぼれた分は無駄になります。','卵液は、フライパンの外の方が広くて自由だと思ったらしい。'],
+  eggSpill:['ボウルの外で割れてしまったスクランブルエッグ','卵はボウルの上で落としましょう。外で割れた卵は無駄になります。','卵は、ボウルの外の世界を見てみたかったようだ。'],
+  leftover:['ボウルの底に未練を残したスクランブルエッグ','卵液が残っています。ボウルを持ち上げたまま、フライパンに全部流し入れましょう。','ボウルの底の卵が、置いていかれて寂しそうだ。'],
+  shell:['ジャリっと食感のスクランブルエッグ','殻が混入しています。卵を割るときは、殻が入っていないか確認しましょう。','カルシウム追加のサービスは頼んでいない!'],
+  butterBurn:['焦がしバター風味(意図せず)のスクランブルエッグ','バターが焦げています。溶けたら火力を下げ、早めに卵液を入れましょう。','香ばしい……と言い張るには、少し苦い。'],
+  eggFew:['一口で消えるスクランブルエッグ','卵が少なすぎます。3〜5個を目安に割りましょう。','おかずではなく、おつまみだ。'],
+  eggMany:['フライパンの限界に挑んだスクランブルエッグ','卵が多すぎます。3〜5個を目安にしましょう。','これは一人前なのか、パーティーなのか。'],
+  mixLiquid:['白身と黄身がまだ別居中のスクランブルエッグ','卵液の混ぜ不足です。白身が見えなくなるまで混ぜましょう。','仲直りには、もう少し時間が必要なようだ。'],
+  foam:['泡が主役になってしまったスクランブルエッグ','泡立てすぎです。ゆっくり円を描くように混ぜましょう。','これは卵料理なのか、カプチーノなのか。'],
+  butterShort:['フライパンとの別れを惜しむスクランブルエッグ','バターが足りません。卵1個につき3〜6gを目安にしましょう。','フライパンから離れたくないらしい。熱い抱擁だ。'],
+  butterExcess:['スマホを触る前に手を洗いたいスクランブルエッグ','バターが多すぎます。量を減らし、薄く広げましょう。','バターの海に卵が浮かんでいる。'],
+  butterSpread:['バターに優遇格差があるスクランブルエッグ','バターの広がりが足りません。溶けたバターをフライパン全体に広げましょう。','恩恵を受ける場所と、受けられない場所ができてしまった。'],
+  heatLow:['気長に待たされたスクランブルエッグ','火力が弱すぎます。もう少し火力を上げましょう。','弱火でじっくり……の前に、こちらが眠りそうだ。'],
+  mixTiming:['タイミングを逃したスクランブルエッグ','混ぜ始めるタイミングが不適切です。縁が固まり始めたころに混ぜ始めましょう。','早すぎても遅すぎてもダメ。恋も卵も同じだ。'],
+  mixShort:['大きな塊がそびえ立つスクランブルエッグ','混ぜ不足です。固まり始めたら、底から大きく混ぜましょう。','スクランブルというより、失敗したオムレツでは?'],
+  mixOver:['存在感が細かく砕けたスクランブルエッグ','混ぜすぎです。粒が細かくなりすぎないよう、ときどき手を止めましょう。','混ぜ続けた結果、卵そぼろになってしまった。']
+ },
+ multi:['卵は大量、バターは海、火力は最大。いったい何を作ろうとしたんだ?','失敗の見本市だ。ここまで揃うと、逆に才能を感じる。','キッチンで何が起きたのか、卵も皿もまだ理解できていない。'],
+ success:{titles:['朝食に出てきたらうれしいスクランブルエッグ','ふつうにおいしいスクランブルエッグ'],comments:['いい感じ!朝食に出てきたらうれしい仕上がりだ。','堅実な腕前だ。あと一歩で伝説に手が届く。']},
+ perfect:{title:'伝説のスクランブルエッグ',comment:'完璧だ。火加減、食感、仕上がり……すべてが理想的。これは伝説のスクランブルエッグだ!'},
+ tips:{ /* 「成功」時の改善点(最も理想から遠い項目を表示) */
+  unif:'卵液をもう少し均一に混ぜると、さらに良くなります。',
+  butter:'バターの量を卵の数に合わせて調整すると、完璧に近づきます。',
+  cov:'バターをフライパン全体に広げると、仕上がりがさらに良くなります。',
+  coag:'固まり具合が理想から少しずれています。ふわとろの瞬間を狙いましょう。',
+  curd:'卵の粒の大きさをもう少し整えると、理想に近づきます。',
+  heat:'火力を中火前後に保つと、さらに安定します。'}
+};
+/* ★ 調整用パラメータ */
+const CFG={shellProb:.25,maxEggs:10,butterStep:5,cookSpeed:.035,burnSpeed:.12,mixCurd:.00018};
+
+/* ---------- 基本 ---------- */
+const $=id=>document.getElementById(id),cv=$('cv'),cx=cv.getContext('2d');
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const mix=(a,b,t)=>a.map((v,i)=>Math.round(v+(b[i]-v)*t));
+const rgb=(c,a=1)=>`rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const rng=s=>()=>(s=(s*1664525+1013904223)>>>0)/4294967296;
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const near=(x,lo,hi,t)=>clamp(x<lo?1-(lo-x)/t:x>hi?1-(x-hi)/t:1);
+const F='"Hiragino Sans","Noto Sans JP",sans-serif';
+const BOWL={x:180,y:190,R:115},PC={x:165,y:190,R:135},cells=[];
+for(let r=0;r<14;r++)for(let c=0;c<14;c++){const x=PC.x-PC.R+(c+.5)*PC.R/7,y=PC.y-PC.R+(r+.5)*PC.R/7;if(Math.hypot(x-PC.x,y-PC.y)<PC.R-8)cells.push({x,y})}
+let S,step,run=false,last=0,drag=null,shareBlob=null,R_;
+const NAMES=['卵を割る','卵を混ぜる','フライパン','加熱・混ぜる','完成'];
+const HINTS=['','カゴから卵を取り、タップでヒビ、ボウルへドラッグして割り入れる。殻はタップで除去。','バターを皿から取って置き、ダイヤルで火を入れる。ボウルをタップで持ち上げ、フライパンを押して注ぐ。','ドラッグで卵を混ぜよう。いい固まり具合で「完成」を押そう!'];
+
+function newState(){const seed=1+Math.floor(Math.random()*1e6),r=rng(seed+99);
+return{eggCount:0,shellAmount:0,shells:[],swirl:0,eggUniformity:0,foamAmount:0,butterAmount:0,butterCoverage:0,panTemperature:25,heatLevel:0,elapsedHeatingTime:0,coagulation:0,mixStart:null,mixInt:0,curdSize:1,burnLevel:0,butterMelt:0,butterBurn:0,poured:false,heatSum:0,lumps:[],hold:0,hx:262,hy:62,dragEgg:false,drop:null,pourAmt:0,pressT:0,eggs:[],splats:[],bhold:0,bx:100,by:44,dragB:false,lift:false,bpx:308,bpy:55,po:{x:0,y:0},spr:0,spillAmt:0,panAmt:0,spills:[],pouring:false,trail:[],ribbons:[],curRib:null,off:false,crk:false,boost:0,cov:cells.map(()=>0),seed,
+curds:Array.from({length:90},()=>{const a=r()*6.283,u=Math.sqrt(r())*.8;return{x:Math.cos(a)*u,y:Math.sin(a)*u,k:r(),j:r(),vx:0,vy:0}})}}
+
+/* ---------- 画面遷移 ---------- */
+function show(id){['scrTitle','scrGame','scrResult'].forEach(s=>$(s).classList.toggle('hide',s!=id))}
+function begin(){ac();startSizzle();S=newState();PL=false;$('done').classList.remove('hide');show('scrGame');goStep(2);run=true;last=performance.now();requestAnimationFrame(loop)}
+let PL=false,TOOL='pepper',shareFile=null,dn=null,mv=0,NX=null;
+function goStep(n){
+ step=n;$('steps').innerHTML=NAMES.map((t,i)=>`<span class="${(n==2?i<2:i+1==n)?'on':i+1<n?'ok':''}">${t}</span>`).join('');
+ BASE=HINTS[n-1];$('hint').textContent=BASE;$('heatBox').classList.toggle('hide',n<3);
+ if(n>=3)drawDial();
+ const c=$('ctl');c.innerHTML='';NX=null;
+ const B=(t,f,cls)=>{const b=document.createElement('button');b.textContent=t;b.onclick=f;if(cls)b.className=cls;c.appendChild(b);return b};
+ if(n==2){NX=B('フライパンの準備へ ▶',()=>goStep(3),'sub')}
+}
+
+/* ---------- 入力 ---------- */
+const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*360/r.width,y:(e.clientY-r.top)*360/r.height}};
+cv.onpointerdown=e=>{if(!run)return;cv.setPointerCapture(e.pointerId);const p=pos(e);mv=0;
+ if(step==2&&!S.drop){const hd=Math.hypot(p.x-S.hx,p.y-S.hy)<36;
+  if(S.hold==0&&p.x<104&&p.y<82&&S.eggCount<CFG.maxEggs){S.hold=1;S.hx=262;S.hy=62;noise(.05,.2,900,'lowpass');return}
+  if(S.hold==1&&hd){S.hold=2;noise(.08,.4,1800,'bandpass');return}
+  if(S.hold==2&&hd){S.dragEgg=true;drag=p;dn=null;return}}
+ if(step>=3){
+  if(S.bhold==0&&Math.hypot(p.x-45,p.y-40)<36){S.bhold=1;S.bx=100;S.by=44;noise(.05,.2,900,'lowpass');return}
+  if(S.bhold==1&&Math.hypot(p.x-S.bx,p.y-S.by)<30){S.dragB=true;drag=p;dn=null;return}
+  if(Math.hypot(p.x-S.bpx,p.y-S.bpy)<56&&S.eggCount>0&&S.pourAmt<1){S.lift=!S.lift;noise(.05,.2,700,'lowpass');return}
+  if(segDist(p,298,236,352,284)<22){toggleOff();return}}
+ drag=p;dn=p};
+cv.onpointermove=e=>{if(!drag||!run)return;const p=pos(e);
+ if(S.dragEgg||S.dragB){if(S.dragEgg){S.hx=p.x;S.hy=p.y}else{S.bx=p.x;S.by=p.y}drag=p;return}
+ if(S.lift){drag=p;return}
+ const dx=p.x-drag.x,dy=p.y-drag.y,d=Math.hypot(dx,dy);mv+=d;drag=p;onDrag(p.x,p.y,d,dx,dy)};
+cv.onpointerup=cv.onpointercancel=()=>{
+ if(S&&S.dragEgg){S.dragEgg=false;if(Math.hypot(S.hx-262,S.hy-62)<40){S.hx=262;S.hy=62}else{const ly=S.hy+35;S.drop={x:S.hx,y:ly,y0:S.hy,t:0,in:Math.hypot(S.hx-BOWL.x,ly-BOWL.y)<BOWL.R*.95};S.hold=0;noise(.12,.35,1200,'bandpass')}}
+ else if(S&&S.dragB){S.dragB=false;if(Math.hypot(S.bx-PC.x,S.by-PC.y)<PC.R-8){S.lumps.push({x:S.bx,y:S.by});S.butterAmount+=CFG.butterStep;S.bhold=0;noise(.06,.25,1500,'lowpass')}else{S.bx=100;S.by=44}}
+ else if(run&&dn&&mv<8&&step==2)tapShell(dn);
+ if(S)S.curRib=null;drag=null;dn=null};
+function segDist(p,x0,y0,x1,y1){const dx=x1-x0,dy=y1-y0,t=clamp(((p.x-x0)*dx+(p.y-y0)*dy)/(dx*dx+dy*dy));return Math.hypot(p.x-x0-dx*t,p.y-y0-dy*t)}
+function toggleOff(){if(!S)return;S.off=!S.off}
+function addEgg(x,y){S.eggUniformity*=S.eggCount/(S.eggCount+1);S.eggCount++;
+ const ex=clamp((x-BOWL.x)/BOWL.R,-.8,.8),ey=clamp((y-BOWL.y)/BOWL.R,-.8,.8);S.eggs.push({x:ex,y:ey,s:0});
+ if(Math.random()<CFG.shellProb){const m=1+(Math.random()<.5?1:0);for(let i=0;i<m;i++)S.shells.push({x:clamp(ex+(Math.random()-.5)*.5,-.85,.85),y:clamp(ey+(Math.random()-.5)*.5,-.85,.85),a:Math.random()*6})}
+ S.shellAmount=S.shells.length;noise(.1,.3,1000,'bandpass')}
+function tapShell(p){let bi=-1,bd=28;S.shells.forEach((h,i)=>{const d=Math.hypot(BOWL.x+h.x*BOWL.R-p.x,BOWL.y+h.y*BOWL.R-p.y);if(d<bd){bd=d;bi=i}});if(bi>=0){S.shells.splice(bi,1);noise(.04,.3,5000,'highpass');S.shellAmount=S.shells.length}}
+function onDrag(x,y,d,dx,dy){
+ if((step==2||step==4)&&d>1){S.trail.push({x,y,t:0});if(S.trail.length>60)S.trail.shift()}
+ if(step==2){S.swirl+=d*.01;
+  S.shells.forEach(h=>{const q=Math.hypot(BOWL.x+h.x*BOWL.R-x,BOWL.y+h.y*BOWL.R-y);if(q<60){const f=(1-q/60)*.35/BOWL.R;h.x+=dx*f;h.y+=dy*f;const m=Math.hypot(h.x,h.y);if(m>.85){h.x*=.85/m;h.y*=.85/m}}});
+  if(S.eggCount>0){S.eggUniformity+=(1-S.eggUniformity)*Math.min(d,30)*.0035;if(d>24)S.foamAmount+=(d-24)*.0025;if(S.eggUniformity>.96)S.foamAmount+=d*.0002;S.foamAmount=clamp(S.foamAmount)}}
+ if(step==3&&S.butterAmount>0&&S.butterMelt>.15){cells.forEach((c,i)=>{if(Math.hypot(c.x-x,c.y-y)<30)S.cov[i]=1});S.butterCoverage=S.cov.reduce((a,b)=>a+b,0)/cells.length}
+ if(step==4){S.mixInt=S.mixInt*.8+d*.2;if(d>6&&Math.random()<.1)noise(.05,.15,3500,'bandpass');
+  if(S.coagulation>.12){if(!S.curRib){S.curRib={p:[],t:0};S.ribbons.push(S.curRib)}S.curRib.p.push({x,y});if(S.curRib.p.length>40)S.curRib.p.shift();if(S.ribbons.length>6)S.ribbons.shift()}
+ if(d>1.5&&!S.mixStart)S.mixStart={c:S.coagulation};if(S.coagulation>.08)S.curdSize=Math.max(.03,S.curdSize-d*CFG.mixCurd*(.5+S.coagulation));
+  const G=eggGeom(),Re=Math.max(8,PC.R*.92*Math.sqrt(S.panAmt)*(.35+.65*S.spr)),m=1-.8*clamp(S.coagulation/.8);
+  S.curds.forEach(p=>{const q=Math.hypot(G.x+p.x*Re-x,G.y+p.y*Re-y);if(q<60){const f=(1-q/60)*m*6/Re;p.vx+=dx*f;p.vy+=dy*f;p.vx-=p.x*(1-q/60)*m*.6;p.vy-=p.y*(1-q/60)*m*.6}})}
+}
+
+/* ---------- 更新 ---------- */
+function update(dt){
+ if(S.drop){S.drop.t+=dt;if(S.drop.t>=.3){const d=S.drop;S.drop=null;if(d.in)addEgg(d.x,d.y);else S.splats.push({x:d.x,y:d.y,t:0})}}
+ S.eggs.forEach(e=>e.s+=(1.4-e.s)*dt*.6);S.splats.forEach(q=>q.t+=dt);
+ S.pouring=false;
+ if(drag&&S.lift&&!S.dragEgg&&!S.dragB&&(step==3||step==4)&&S.eggCount>0&&S.pourAmt<1){S.pressT+=dt;if(S.pressT>.08){
+  S.pouring=true;const inc=Math.min(dt*.4,1-S.pourAmt),inside=Math.hypot(drag.x-PC.x,drag.y-PC.y)<PC.R-4;
+  S.pourAmt+=inc;S.boost=Math.max(S.boost,.5);
+  if(inside){if(!S.poured){S.poured=true;S.panTemperature=Math.max(25,S.panTemperature-15);S.boost=1;noise(.7,.5,6500,'highpass');goStep(4)}
+   const nx=(drag.x-PC.x)/PC.R,ny=(drag.y-PC.y)/PC.R,pa=S.panAmt;S.po.x=(S.po.x*pa+nx*inc)/(pa+inc);S.po.y=(S.po.y*pa+ny*inc)/(pa+inc);S.panAmt+=inc}
+  else{S.spillAmt+=inc;if(Math.random()<.3)S.spills.push({x:drag.x,y:drag.y});if(S.spills.length>80)S.spills.shift()}
+  if(S.pourAmt>=1)S.lift=false}}else S.pressT=0;
+ const bt=S.lift?(drag?{x:Math.min(312,drag.x+48),y:Math.max(50,drag.y-52)}:{x:240,y:70}):{x:308,y:55};S.bpx+=(bt.x-S.bpx)*Math.min(1,dt*8);S.bpy+=(bt.y-S.bpy)*Math.min(1,dt*8);
+ if(S.poured){S.spr+=(1-S.spr)*dt*.5*(1-clamp(S.coagulation/.9));const k=Math.exp(-dt*5);S.curds.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=k;p.vy*=k;const h=Math.hypot(p.x,p.y);if(h>.85){p.x*=.85/h;p.y*=.85/h}})}
+ S.trail=S.trail.filter(w=>(w.t+=dt)<1.2);
+  S.boost=Math.max(0,S.boost-dt*.7);S.ribbons.forEach(r=>{if(r!==S.curRib)r.t+=dt});S.ribbons=S.ribbons.filter(r=>r===S.curRib||r.t<2.5);
+ if(step>=3){const tg=S.off?20:20+S.heatLevel*28;S.panTemperature+=(tg-S.panTemperature)*(1-Math.exp(-dt/(S.off?25:7)))}
+ const T=S.panTemperature;
+ if(step==3&&S.butterAmount>0){if(T>75)S.butterMelt=Math.min(1,S.butterMelt+(T-70)/100*.3*dt);if(S.butterMelt>.3&&T>165)S.butterBurn=clamp(S.butterBurn+(T-160)/100*.12*dt)}
+ if(step==4){
+  if(!S.off){S.elapsedHeatingTime+=dt;S.heatSum+=S.heatLevel*dt}
+  S.coagulation=clamp(S.coagulation+Math.max(0,T-65)/100*CFG.cookSpeed*dt*(4/clamp(S.eggCount,2,8)));
+  S.mixInt*=Math.exp(-3*dt);
+  const eff=clamp(S.butterAmount/(3*S.eggCount))*clamp(S.butterCoverage/.8);
+  if(T>135)S.burnLevel=clamp(S.burnLevel+(T-135)/120*CFG.burnSpeed*(1.4-.9*eff)*(1-.7*clamp(S.mixInt/10))*(S.coagulation>.05?1:.3)*dt);
+  if(S.coagulation>.9)S.burnLevel=clamp(S.burnLevel+(T-80)/200*.04*dt);
+ }
+}
+
+/* ---------- 描画 ---------- */
+function circ(c,x,y,r,f){c.beginPath();c.arc(x,y,r,0,7);c.fillStyle=f;c.fill()}
+function blob(c,x,y,r,rn,k=.22){const n=9,p=[];for(let i=0;i<n;i++){const a=i/n*6.2832,q=r*(1+(rn()-.5)*2*k);p.push([x+Math.cos(a)*q,y+Math.sin(a)*q])}
+ const m=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];c.beginPath();const s0=m(p[n-1],p[0]);c.moveTo(s0[0],s0[1]);for(let i=0;i<n;i++){const e=m(p[i],p[(i+1)%n]);c.quadraticCurveTo(p[i][0],p[i][1],e[0],e[1])}c.closePath()}
+function grad(c,x,y,r,a,b){const g=c.createRadialGradient(x-r*.3,y-r*.3,r*.1,x,y,r*1.1);g.addColorStop(0,a);g.addColorStop(1,b);return g}
+function foam(c,x,y,R,s,r){for(let i=0;i<s.foamAmount*45;i++){const a=r()*7,d=R*.9*Math.sqrt(r()),q=2+r()*r()*10,px=x+Math.cos(a)*d,py=y+Math.sin(a)*d;
+ const g=c.createRadialGradient(px-q*.3,py-q*.3,q*.1,px,py,q);g.addColorStop(0,'rgba(255,255,255,.75)');g.addColorStop(.7,'rgba(255,250,235,.22)');g.addColorStop(1,'rgba(255,255,255,.55)');
+ c.beginPath();c.arc(px,py,q,0,7);c.fillStyle=g;c.fill();c.strokeStyle='rgba(255,255,255,.7)';c.lineWidth=1;c.stroke();circ(c,px-q*.35,py-q*.4,Math.max(.8,q*.18),'rgba(255,255,255,.95)')}}
+function shellDraw(c,x,y,R,s,al){(s.shells||[]).forEach(h=>{c.save();c.translate(x+h.x*R,y+h.y*R);c.rotate(h.a);c.globalAlpha=al;c.beginPath();c.ellipse(0,0,7,4,0,0,7);c.fillStyle='#f4ecd8';c.fill();c.strokeStyle='#c9b48a';c.lineWidth=1;c.stroke();c.restore()})}
+function drawEgg(c,x,y,R,s,seed,g=1){
+ const u=s.eggUniformity;
+ if(!s.poured){
+  if(!s.eggCount)return;const sw=s.swirl||0,n=s.eggCount;
+  const es=s.eggs&&s.eggs.length?s.eggs:Array.from({length:n},(_,i)=>({x:Math.cos(i*2.4)*.3,y:Math.sin(i*2.4)*.3,s:1.2}));
+  const wc=mix([252,250,242],[255,222,95],u),pos=e=>{const d=Math.hypot(e.x,e.y),a=Math.atan2(e.y,e.x)+sw*(1-Math.min(1,d))*.6;return[x+Math.cos(a)*d*R,y+Math.sin(a)*d*R]};
+  if(u>.02){blob(c,x,y,R*clamp(.6+.12*n,.6,1.1),rng(seed+1),.04);c.fillStyle=rgb(wc,.97*clamp(u*1.3));c.fill()}
+  es.forEach((e,i)=>{const [px,py]=pos(e),sp=Math.min(e.s,1.4);
+   blob(c,px,py,R*(.12+.2*sp),rng(seed+i*3),.3);c.fillStyle=rgb(wc,.88*(1-u*.9));c.fill();c.strokeStyle=`rgba(190,175,150,${.35*(1-u)})`;c.stroke();
+   const yr=R*.13*(1+.25*sp);circ(c,px,py,yr,grad(c,px,py,yr,`rgba(255,200,60,${1-u})`,`rgba(235,120,10,${1-u})`));circ(c,px-yr*.3,py-yr*.35,yr*.3,`rgba(255,255,255,${.7*(1-u)})`)});
+  c.fillStyle='rgba(255,255,255,.22)';c.beginPath();c.ellipse(x-R*.35,y-R*.45,R*.3,R*.1,-.5,0,7);c.fill();
+  foam(c,x,y,R,s,rng(seed+7));shellDraw(c,x,y,R,s,clamp(1-u*.8-s.foamAmount*.3,.12,1));return}
+ const co=s.coagulation,lf=clamp(1-co*1.25),b=clamp((s.burnLevel-.12)*1.6),gl=clamp(1-co*.7-s.burnLevel)*(1-b),cs=s.curdSize,pl=g<1;
+ const Rg=R*g*Math.sqrt(s.panAmt===undefined?1:s.panAmt)*(s.spr===undefined?1:.35+.65*s.spr);
+ const pp=p=>{if(!pl)return[p.x,p.y];const th=Math.atan2(p.y,p.x),h=Math.hypot(p.x,p.y),f=1+.22*Math.sin(2*th+seed%7)+.14*Math.sin(3*th+seed%5);return[Math.cos(th)*h*f*1.1,Math.sin(th)*h*f*.85]};
+ if(s.butterAmount/(6*Math.max(1,s.eggCount))>1.2){blob(c,x,y,Rg*1.08,rng(seed+2),.2);c.fillStyle='rgba(255,225,100,.25)';c.fill()}
+ if(pl){blob(c,x+2,y+5,Rg*.8,rng(seed+3),.3);c.fillStyle='rgba(0,0,0,.1)';c.fill()}
+ const liq=mix([255,222,110],[150,95,35],b),sol=mix(mix([255,238,150],[247,204,92],co),[120,75,30],b);
+ if(!pl){
+  const pa=clamp((s.panAmt===undefined?1:s.panAmt)*(s.spr===undefined?1:s.spr));blob(c,x,y,Rg*1.05,rng(seed+3),.05+.2*(1-pa));c.save();
+  const pg=c.createRadialGradient(x-Rg*.2,y-Rg*.25,Rg*.1,x,y,Rg*1.05);pg.addColorStop(0,rgb(mix(liq,[255,240,160],.35),.92));pg.addColorStop(.8,rgb(liq,.62+.38*lf));pg.addColorStop(1,rgb(liq,(.62+.38*lf)*.6));c.fillStyle=pg;c.fill();c.clip();
+  if(co>.02){const inn=Rg*Math.max(0,1-co*1.2),gr=c.createRadialGradient(x,y,inn*.85,x,y,Rg*1.05);gr.addColorStop(0,rgb(sol,0));gr.addColorStop(1,rgb(sol,clamp(cs*1.3-.15)*.85));c.fillStyle=gr;c.fill()}
+  c.fillStyle=rgb(mix(sol,[225,165,55],.3),clamp((co-.35)*2)*.9);c.fill();
+  if(gl>.2)for(let i=0;i<3;i++){c.fillStyle=`rgba(255,255,255,${.16*gl*lf})`;c.beginPath();c.ellipse(x+(i-1)*Rg*.4,y-Rg*.25+i*Rg*.2,Rg*.3,Rg*.08,-.4,0,7);c.fill()}
+  c.restore()
+ }else if(lf>.2){blob(c,x,y,Rg*.7*(.15+lf),rng(seed+3),.3);c.fillStyle=rgb(mix(liq,[255,235,140],.2),.85*lf+.1);c.fill()}
+ const n=Math.floor((pl?24:14)+(1-cs)*(pl?66:60)),qb=Rg*(.1+.38*cs*cs)*(pl?1.15:1);
+ if(pl)for(let i=0;i<n;i++){const p=s.curds[i],[ux,uy]=pp(p);circ(c,x+ux*Rg,y+uy*Rg,qb*(.45+p.k*.9)*1.25,rgb(mix(sol,[225,165,55],.25),clamp(co*2)*.85))}
+ for(let i=0;i<n;i++){const p=s.curds[i],[ux,uy]=pp(p);for(let j=i+1;j<Math.min(n,i+7);j++){const o=s.curds[j],[vx,vy]=pp(o),d=Math.hypot(ux-vx,uy-vy)*Rg,w=qb*.8;if(d<w*2.6&&co>.15){c.beginPath();c.moveTo(x+ux*Rg,y+uy*Rg);c.lineTo(x+vx*Rg,y+vy*Rg);c.lineCap='round';c.strokeStyle=rgb(sol,clamp(co*2)*.8);c.lineWidth=w*(1-d/(w*2.6))*1.6;c.stroke()}}}
+ for(let i=0;i<n;i++){const p=s.curds[i],[ux,uy]=pp(p),q=qb*(.45+p.k*.9),px=x+ux*Rg,py=y+uy*Rg,al=clamp((co-(1-Math.hypot(p.x,p.y))*.25)*3);
+  if(al<=0)continue;const bf=clamp((s.burnLevel-.1)*1.5*(.6+p.j*.8)),col=mix(mix(sol,[255,225,140],.15+p.k*.15),[110,65,25],bf),dry=clamp((co-.8)*4);
+  blob(c,px+1.5,py+2.5,q,rng(seed+i),.35);c.fillStyle=rgb(mix(col,[170,110,30],.5),.45*al);c.fill();
+  blob(c,px,py,q,rng(seed+i),.35);c.fillStyle=grad(c,px,py,q,rgb(mix(col,[255,248,205],.25),al),rgb(mix(col,[205,150,50],.3),al));c.fill();
+  if(gl>.15){c.fillStyle=`rgba(255,255,255,${.12*gl*al})`;c.beginPath();c.ellipse(px-q*.3,py-q*.35,q*.35,q*.14,-.5,0,7);c.fill()}
+  if(dry>0)for(let k=0;k<3;k++)circ(c,px+(p.k-.5)*q*(k+1)*.6,py+(p.j-.5)*q*k*.7,1.6,`rgba(150,100,30,${.35*dry})`)}
+ if(s.foamAmount>.35)foam(c,x,y,Rg,s,rng(seed+5));shellDraw(c,x,y,Rg,s,.9)
+}
+function drawDish(c,x,y,R,s,seed){
+ circ(c,x+5,y+10,R*1.4,'rgba(0,0,0,.18)');circ(c,x,y,R*1.4,grad(c,x,y,R*1.3,'#ffffff','#d9d4ca'));
+ c.beginPath();c.arc(x,y,R*1.12,0,7);c.strokeStyle='rgba(0,0,0,.1)';c.lineWidth=4;c.stroke();circ(c,x,y,R*1.1,grad(c,x,y,R*1.1,'#fafaf7','#ece8df'));
+ drawEgg(c,x,y,R,s,seed,.82);const tp=s.top;
+ if(tp){tp.pepper.forEach(p=>circ(c,x+p.x*R,y+p.y*R,(.012+p.a*.006)*R,'rgba(25,20,18,.88)'));tp.parsley.forEach(p=>{c.save();c.translate(x+p.x*R,y+p.y*R);c.rotate(p.a*2);c.fillStyle='rgba(70,150,60,.9)';c.fillRect(-.03*R,-.012*R,.06*R,.025*R);c.restore()})}
+}
+function drawPanBase(){
+ const T=S.panTemperature,h=clamp((T-60)/220);
+ drawHandle();
+ const g=cx.createLinearGradient(PC.x-PC.R,PC.y-PC.R,PC.x+PC.R,PC.y+PC.R);g.addColorStop(0,rgb(mix([130,130,138],[255,120,50],h)));g.addColorStop(1,'#1d1d21');
+ circ(cx,PC.x,PC.y,PC.R+10,g);circ(cx,PC.x,PC.y,PC.R,grad(cx,PC.x,PC.y,PC.R,'#5a5a62','#2a2a2f'));
+ cx.beginPath();cx.arc(PC.x,PC.y,PC.R-5,0,7);cx.strokeStyle='rgba(0,0,0,.4)';cx.lineWidth=10;cx.stroke()
+}
+function drawButter(t){
+ const bb=S.butterBurn,m=S.butterMelt,T=S.panTemperature,bc=mix([255,226,110],[60,35,12],clamp(bb*1.5));
+ S.cov.forEach((v,i)=>{if(v){const c=cells[i],g=cx.createRadialGradient(c.x,c.y,2,c.x,c.y,34);g.addColorStop(0,rgb(bc,.16));g.addColorStop(1,rgb(bc,0));cx.fillStyle=g;cx.fillRect(c.x-34,c.y-34,68,68);if(T>100&&(i*7)%5==0){cx.beginPath();cx.arc(c.x+Math.sin(t*2+i)*6,c.y+Math.cos(t*1.7+i)*6,1.5+(i%3),0,7);cx.strokeStyle='rgba(255,255,255,.7)';cx.stroke()}}});
+ S.lumps.forEach((l,i)=>{
+  if(m<.3){const q=22*(1-m*2.2);cx.fillStyle=rgb([255,238,160],.95);cx.fillRect(l.x-q/2,l.y-q/2,q,q*.8);return}
+  const r=8+m*26;blob(cx,l.x,l.y,r,rng(S.seed+i),.28);cx.fillStyle=grad(cx,l.x,l.y,r,rgb(bc,.85),rgb(bc,.5));cx.fill();
+  cx.fillStyle='rgba(255,255,255,.45)';cx.beginPath();cx.ellipse(l.x-r*.3,l.y-r*.35,r*.35,r*.12,-.5,0,7);cx.fill();
+  if(T>100)for(let k=0;k<3;k++){const a=t*1.3+k*2+i;cx.beginPath();cx.arc(l.x+Math.cos(a)*r*.5,l.y+Math.sin(a*1.3)*r*.4,2+k,0,7);cx.strokeStyle='rgba(255,255,255,.8)';cx.stroke()}
+  if(bb>.1)circ(cx,l.x+r*.2,l.y+r*.1,r*.3*bb*2,'rgba(30,15,5,.5)')})
+}
+function drawTrail(col){cx.lineCap='round';cx.lineJoin='round';for(let i=1;i<S.trail.length;i++){const a=S.trail[i-1],b=S.trail[i];if(Math.hypot(a.x-b.x,a.y-b.y)>50)continue;cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.strokeStyle=`rgba(${col},${.3*(1-b.t/1.2)})`;cx.lineWidth=12;cx.stroke()}}
+function drawRibbons(){const co=S.coagulation,sol=mix([255,236,140],[247,204,92],clamp(co));cx.lineCap='round';cx.lineJoin='round';
+ S.ribbons.forEach(r=>{if(r.p.length<3)return;const al=r===S.curRib?1:clamp(1-r.t/2.5);
+  const path=(ox,oy)=>{cx.beginPath();cx.moveTo(r.p[0].x+ox,r.p[0].y+oy);for(let i=1;i<r.p.length-1;i++){const a=r.p[i],b=r.p[i+1];cx.quadraticCurveTo(a.x+ox,a.y+oy,(a.x+b.x)/2+ox,(a.y+b.y)/2+oy)}};
+  path(1.5,3);cx.strokeStyle=rgb([205,150,50],.35*al);cx.lineWidth=15;cx.stroke();
+  path(0,0);cx.strokeStyle=rgb(sol,.6*al);cx.lineWidth=14;cx.stroke();
+  path(-2,-3);cx.strokeStyle=`rgba(255,255,255,${.4*clamp(1-co*.6)*al})`;cx.lineWidth=3;cx.stroke()})}
+function drawBasket(){cx.save();const g=cx.createLinearGradient(8,40,8,78);g.addColorStop(0,'#c99a5b');g.addColorStop(1,'#8e6532');
+ [[28,34],[52,28],[74,36]].forEach(([x,y])=>{cx.beginPath();cx.ellipse(x,y,13,17,0,0,7);cx.fillStyle=grad(cx,x,y,15,'#fff6e4','#e2c89a');cx.fill()});
+ cx.beginPath();if(cx.roundRect)cx.roundRect(8,42,92,36,10);else cx.rect(8,42,92,36);cx.fillStyle=g;cx.fill();
+ cx.strokeStyle='rgba(70,40,10,.4)';cx.lineWidth=1.5;for(let i=0;i<5;i++){cx.beginPath();cx.moveTo(8,48+i*7);cx.lineTo(100,48+i*7);cx.stroke()}for(let i=0;i<8;i++){cx.beginPath();cx.moveTo(18+i*11,42);cx.lineTo(18+i*11,78);cx.stroke()}
+ cx.fillStyle='#4a3420';cx.font='bold 12px '+F;cx.fillText('卵',46,96);cx.restore()}
+function drawHeld(){if(!S.hold)return;cx.save();cx.translate(S.hx,S.hy);cx.rotate(S.hold==2?-.5:-.15);
+ cx.beginPath();cx.ellipse(0,0,21,28,0,0,7);cx.fillStyle=grad(cx,0,0,24,'#fff8e8','#dcc08e');cx.fill();cx.strokeStyle='rgba(120,90,50,.5)';cx.lineWidth=1;cx.stroke();
+ if(S.hold==2){cx.beginPath();cx.moveTo(-20,-2);[[-12,5],[-6,-4],[0,5],[7,-3],[13,4],[20,-1]].forEach(p=>cx.lineTo(p[0],p[1]));cx.strokeStyle='#6d4f26';cx.lineWidth=2;cx.stroke()}
+ cx.restore();cx.fillStyle='rgba(74,52,32,.5)';cx.font='12px '+F;cx.fillText(S.hold==1?'割る':'落とす',S.hx+24,S.hy+36)}
+function drawDrop(){const d=S.drop;if(!d)return;const k=clamp(d.t/.3),y=d.y0+(d.y-d.y0)*k*k,r=14*(1-.2*k);
+ cx.save();cx.globalAlpha=1-k*.4;circ(cx,d.x,y,r*1.6,'rgba(255,255,255,.75)');circ(cx,d.x,y,r,grad(cx,d.x,y,r,'#ffc83c','#e67e0a'));cx.restore();
+ cx.fillStyle='#f3e7cd';[-1,1].forEach(sg=>{cx.beginPath();cx.ellipse(d.x+sg*(14+k*10),d.y0-10-k*8,14,10,sg*(.6+k*.5),0,Math.PI);cx.fill()})}
+function eggGeom(){const k=1-S.spr;return{x:PC.x+S.po.x*PC.R*k,y:PC.y+S.po.y*PC.R*k}}
+function drawHandle(){const x0=298,y0=236,x1=352,y1=284;cx.lineCap='round';cx.beginPath();cx.moveTo(x0,y0);cx.lineTo(x1,y1);cx.strokeStyle='#17171a';cx.lineWidth=18;cx.stroke();
+ cx.beginPath();cx.moveTo(x0+2,y0+2);cx.lineTo(x1-2,y1-2);cx.strokeStyle='#3b3b42';cx.lineWidth=11;cx.stroke();circ(cx,x1-3,y1-3,3.5,'#111');
+ if(step>=3){cx.fillStyle=`rgba(74,52,32,${S.off?.85:.45})`;cx.font='11px '+F;cx.fillText(S.off?'火に戻す':'火から外す',262,326)}}
+function drawButterDish(){cx.beginPath();cx.ellipse(45,42,34,22,0,0,7);cx.fillStyle='#fff';cx.fill();cx.strokeStyle='#ddd5c4';cx.lineWidth=2;cx.stroke();
+ cx.beginPath();if(cx.roundRect)cx.roundRect(27,31,36,19,4);else cx.rect(27,31,36,19);cx.fillStyle=grad(cx,45,40,22,'#fff1a8','#f0c850');cx.fill();
+ cx.fillStyle='rgba(74,52,32,.5)';cx.font='11px '+F;cx.fillText('バター',27,74);
+ if(S.bhold){cx.beginPath();if(cx.roundRect)cx.roundRect(S.bx-13,S.by-8,26,16,4);else cx.rect(S.bx-13,S.by-8,26,16);cx.fillStyle=grad(cx,S.bx,S.by,14,'#fff1a8','#f0c850');cx.fill();cx.fillStyle='rgba(74,52,32,.5)';cx.fillText('置く',S.bx-9,S.by+26)}}
+function drawPourBowl(){if(step<3)return;const bx=S.bpx,by=S.bpy,k=S.lift?1.1:1,sh=S.lift?10:4;
+ circ(cx,bx+sh/2,by+sh,50*k,'rgba(0,0,0,.2)');circ(cx,bx,by,48*k,grad(cx,bx,by,48*k,'#fff','#cfc8ba'));circ(cx,bx,by,38*k,grad(cx,bx,by,38*k,'#cdc5b6','#efe9de'));
+ if(S.eggCount>0&&S.pourAmt<.97)drawEgg(cx,bx,by,Math.max(5,36*k*Math.sqrt(1-S.pourAmt)),{...S,poured:false,shells:[],foamAmount:0},S.seed);
+ cx.fillStyle='rgba(74,52,32,.5)';cx.font='11px '+F;if(S.eggCount>0&&!(S.lift&&S.pouring))cx.fillText(S.lift?'長押し':'ボウル',bx-18,by+62*k);
+ if(S.pouring&&drag){const lx=bx-30*k,ly=by+28*k;cx.beginPath();cx.moveTo(lx,ly);cx.quadraticCurveTo(lx-6,(ly+drag.y)/2,drag.x,drag.y);cx.strokeStyle='rgba(255,214,80,.9)';cx.lineWidth=7;cx.lineCap='round';cx.stroke()}}
+function steam(t,n){cx.lineCap='round';for(let i=0;i<n;i++){const bx=60+i*42+Math.sin(i*5)*15,ph=t*1.2+i*2;
+ for(const [w,al] of [[16,.04],[9,.06],[4,.08]]){cx.beginPath();cx.moveTo(bx,PC.y-30);let px=bx,py=PC.y-30;
+  for(let k=1;k<=4;k++){const nx=bx+Math.sin(ph+k*1.1)*(10+k*6),ny=PC.y-30-k*45;cx.quadraticCurveTo(px+Math.sin(ph*1.3+k)*18,(py+ny)/2,nx,ny);px=nx;py=ny}
+  cx.strokeStyle=`rgba(255,255,255,${al})`;cx.lineWidth=w;cx.stroke()}}}
+function draw(){
+ const t=performance.now()/1000;cx.fillStyle='#f0d9a0';cx.fillRect(0,0,360,360);
+ if(step<=2){
+  const bx=BOWL.x;S.splats.forEach(q=>{const r=20*(1-Math.exp(-q.t*5));blob(cx,q.x,q.y,r,rng(q.x*7|0),.3);cx.fillStyle='rgba(255,252,240,.9)';cx.fill();circ(cx,q.x,q.y,r*.45,'#f2b01e')});circ(cx,bx+4,PC.y+8,150,'rgba(0,0,0,.18)');circ(cx,bx,PC.y,148,grad(cx,bx,PC.y,148,'#fff','#cfc8ba'));circ(cx,bx,PC.y,128,grad(cx,bx,PC.y,128,'#cdc5b6','#efe9de'));
+  drawEgg(cx,bx,BOWL.y,BOWL.R,S,S.seed);drawTrail('255,255,255');cx.fillStyle='#4a3420';cx.font='bold 16px '+F;cx.fillText('卵 '+S.eggCount+'個',270,26);drawBasket();drawDrop();drawHeld();
+ }else{
+  S.spills.forEach(q=>circ(cx,q.x,q.y,9,'rgba(255,214,80,.8)'));drawPanBase();cx.save();cx.beginPath();cx.arc(PC.x,PC.y,PC.R-2,0,7);cx.clip();
+  drawButter(t);if(S.poured){const G=eggGeom();drawEgg(cx,G.x,G.y,PC.R*.92,S,S.seed);drawTrail('255,226,120');drawRibbons()}
+  cx.restore();drawButterDish();drawPourBowl();const T=S.panTemperature;
+  steam(t,Math.min(8,clamp(Math.floor((T-70)/25),0,7)+Math.round(S.boost*3)));
+  if(S.burnLevel>.2||S.butterBurn>.2)for(let i=0;i<4;i++)circ(cx,110+i*45+Math.sin(t*2+i)*8,40-((t*30+i*15)%40),10+i*2,'rgba(60,60,60,.35)');
+  cx.fillStyle='#4a3420';cx.font='bold 15px '+F;cx.fillText('🌡 '+Math.round(T)+'℃',10,334);if(S.butterAmount)cx.fillText('🧈 '+S.butterAmount+'g',10,352);
+ }
+ if(drag){cx.beginPath();cx.arc(drag.x,drag.y,14,0,7);cx.strokeStyle='#fff';cx.lineWidth=4;cx.stroke()}
+}
+let BASE='',AC=null,sizz=null;
+const clampN=clamp;
+function status(){
+ const on=$('hintOn').checked;let m='',glow=false;
+ if(step==3){if(S.butterMelt>.3&&S.butterCoverage<.5)m='バターが溶けた! 広げよう';else if(S.butterBurn>.1)m='バターが焦げそう! 火力を下げて'}
+ if(step==4){const c=S.coagulation;
+  if(S.burnLevel>.12)m='焦げ注意! 火力を下げて混ぜよう';
+  else if(c<.1)m='卵液が広がっている…';
+  else if(!S.mixStart&&c<.4)m='縁が固まり始めた! 混ぜるタイミング!';
+  else if(!S.mixStart)m='固まってきた! 早く混ぜて!';
+  else if(c>=.6&&c<=.88&&S.curdSize>=.28&&S.curdSize<=.62){m='ふわとろ! 今が完成のとき!';glow=true}
+  else if(c>.88)m='火が通りすぎ…';
+  else if(S.curdSize>.7)m='底から大きく混ぜよう';
+  else m=S.off?'火から外し中。余熱でゆっくり固まる':'もう少し加熱…'}
+ $('hint').textContent=m&&(on||/焦げ/.test(m))?m:(step<4&&on?BASE:'');
+ $('done').classList.toggle('glow',glow&&on);
+ if(sizz)sizz.gain.value=$('sndOn').checked&&step>=3?clamp((S.panTemperature-85)/160)*(S.poured?.1:.05)*(1+S.burnLevel*2+S.boost*3):0
+}
+function ac(){if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}}return AC}
+function noise(dur,vol,freq,type){const a=ac();if(!a||!$('sndOn').checked)return;const n=a.sampleRate*dur,b=a.createBuffer(1,n,a.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);const o=a.createBufferSource();o.buffer=b;const f=a.createBiquadFilter();f.type=type;f.frequency.value=freq;const g=a.createGain();g.gain.value=vol;o.connect(f);f.connect(g);g.connect(a.destination);o.start()}
+function startSizzle(){const a=ac();if(!a||sizz)return;const n=a.sampleRate*2,b=a.createBuffer(1,n,a.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;const o=a.createBufferSource();o.buffer=b;o.loop=true;const f=a.createBiquadFilter();f.type='highpass';f.frequency.value=2500;const g=a.createGain();g.gain.value=0;o.connect(f);f.connect(g);g.connect(a.destination);o.start();sizz=g}
+function chime(){const a=ac();if(!a||!$('sndOn').checked)return;[660,880].forEach((f,i)=>{const t=a.currentTime+i*.12,o=a.createOscillator(),g=a.createGain();o.frequency.value=f;g.gain.setValueAtTime(.15,t);g.gain.exponentialRampToValueAtTime(.001,t+.4);o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+.45)})}
+function loop(now){if(!run)return;const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);draw();status();requestAnimationFrame(loop)}
+
+/* ---------- 判定 ---------- */
+function evaluate(){
+ let pen=0;
+ const s={...S,lumps:null,cov:null},n=s.eggCount,lo=3*n,hi=6*n,M=new Set(),J=new Set();
+ const avgH=s.elapsedHeatingTime>1?s.heatSum/s.elapsedHeatingTime:0,c=s.coagulation,ms=s.mixStart;
+ if(!n)J.add('noEgg');
+ else{
+  if(n>=9)J.add('eggExtreme');else if(n>=6)M.add('eggMany');else if(n<=2)M.add('eggFew');
+  if(s.shellAmount>=3)J.add('shellMany');else if(s.shellAmount>=1)M.add('shell');
+  if(step>=2){if(s.eggUniformity<.7)M.add('mixLiquid');if(s.foamAmount>.6)M.add('foam')}
+  if(step>=3){if(s.butterAmount<lo*.7)M.add('butterShort');else if(s.butterAmount>hi*1.4)M.add('butterExcess');
+   if(s.butterAmount>0&&s.butterCoverage<.6)M.add('butterSpread');if(s.butterBurn>.4)M.add('butterBurn')}
+  if(!s.poured||c<.15)J.add('rawEgg');
+  else{
+   if(s.pourAmt<.85)M.add('leftover');
+   const hot=avgH>7.5&&s.elapsedHeatingTime>6;
+   if(s.burnLevel>.6)J.add('burnt');else if(s.burnLevel>.2||hot)M.add('heatHigh');
+   if(c<.45){if(avgH<3)M.add('heatLow');else M.add('under')}
+   if(c>.92&&!M.has('heatHigh'))M.add('over');
+   if(!ms||(s.curdSize>.8&&c>.4))M.add('mixShort');else if(ms.c<.04||ms.c>.4)M.add('mixTiming');
+   if(s.curdSize<.18)M.add('mixOver');
+  }
+ }
+ if(s.splats.length){M.add('eggSpill');pen+=12*s.splats.length}
+ if(s.spillAmt>.03){M.add('spillLiquid');pen+=15+Math.min(15,s.spillAmt*40)}
+ if(M.has('leftover'))pen+=(1-s.pourAmt)*35;
+ const cp={unif:clamp(s.eggUniformity/.85),butter:near(s.butterAmount,lo,hi,Math.max(hi,1)),cov:clamp(s.butterCoverage/.85),coag:near(c,.62,.88,.5),curd:near(s.curdSize,.28,.62,.4),heat:near(avgH,3,7,3)};
+ const W=[near(n,3,5,3),cp.unif,1-clamp((s.foamAmount-.4)/.5),cp.butter,cp.cov,step>=3?1-clamp(s.butterBurn/.5):0,cp.coag,cp.curd,cp.heat,s.poured?1-clamp(s.burnLevel/.6):0,1-clamp(s.shellAmount/3)];
+ let score=100*W.reduce((a,b)=>a+b,0)/W.length;
+ 
+ const mc=M.size,jc=J.size,perfect=!jc&&!mc&&n>=3&&n<=5&&!s.shellAmount&&s.eggUniformity>=.85&&s.foamAmount<.35&&s.butterAmount>=lo&&s.butterAmount<=hi&&s.butterCoverage>=.85&&s.butterBurn<.1&&c>=.62&&c<=.88&&s.curdSize>=.28&&s.curdSize<=.62&&avgH>=3&&avgH<=7&&s.burnLevel<.05&&ms&&ms.c>=.05&&ms.c<=.35;
+ const rank=jc||mc>=4?'大失敗':mc?'失敗':perfect?'完璧':'成功';
+ const q=score;score=rank=='完璧'?95+q*.05:rank=='成功'?50+q*.44:rank=='失敗'?20+q*.29:q*.3;if(!n)score=0;score=Math.max(0,score-pen);
+ const all=[...J,...M],key=Object.keys(TEXT.miss).find(k=>all.includes(k));
+ let title,advice=null,comment;
+ if(key){const t=TEXT.miss[key];title=t[0];advice=t[1];comment=all.length>=3?pick(TEXT.multi):t[2]}
+ else if(perfect){title=TEXT.perfect.title;comment=TEXT.perfect.comment}
+ else{title=pick(TEXT.success.titles);comment=pick(TEXT.success.comments);const k=Object.keys(TEXT.tips).sort((a,b)=>cp[a]-cp[b])[0];advice=TEXT.tips[k]}
+ const brk=[['卵液',(cp.unif+W[2])/2],['バター',(cp.butter+cp.cov)/2],['火加減',(cp.heat+W[9])/2],['仕上がり',(cp.coag+cp.curd)/2]];
+ return{brk,title,score:Math.round(score),rank,misses:[...M],majors:[...J],advice,comment,s,seed:S.seed}
+}
+
+/* ---------- 結果・共有 ---------- */
+const RC={'完璧':'#d4a017','成功':'#2e9e5b','失敗':'#e07b00','大失敗':'#c8321e'};
+function wrap(g,t,w){const o=[];let l='';for(const ch of t){if(g.measureText(l+ch).width>w){o.push(l);l=ch}else l+=ch}if(l)o.push(l);return o}
+function makeShare(r){
+ const c=document.createElement('canvas');c.width=1080;c.height=1350;const g=c.getContext('2d');
+ const bg=g.createLinearGradient(0,0,0,1350);bg.addColorStop(0,'#ffe9a8');bg.addColorStop(1,'#f5b94a');g.fillStyle=bg;g.fillRect(0,0,1080,1350);
+ g.textAlign='center';g.fillStyle='#4a3420';g.font='bold 58px '+F;let y=110;
+ wrap(g,r.title,960).forEach(l=>{g.fillText(l,540,y);y+=74});
+ drawDish(g,540,y+250,200,r.s,r.seed);y+=520;
+ g.fillStyle=RC[r.rank];g.font='bold 120px '+F;g.fillText(r.score+'点 '+r.rank,540,y+60);y+=130;
+ g.fillStyle='#4a3420';
+ if(r.advice){g.font='bold 38px '+F;wrap(g,'💡 '+r.advice,940).forEach(l=>{g.fillText(l,540,y+40);y+=52});y+=14}
+ g.font='36px '+F;wrap(g,r.comment,940).forEach(l=>{g.fillText(l,540,y+40);y+=50});
+ g.font='bold 34px '+F;g.fillText('🍳 '+GAME_NAME,540,1305);
+ return c
+}
+function finish(){
+ if(!run)return;run=false;drag=null;
+ if(S.poured)S.coagulation=clamp(S.coagulation+clamp((S.panTemperature-70)/150)*.1*(S.off?.3:1));
+ if(sizz)sizz.gain.value=0;R_=evaluate();showResult()
+}
+function showResult(){
+ PL=false;const r=R_;
+ $('rTitle').textContent=r.title;$('rScore').innerHTML=`${r.score}点 <span style="color:${RC[r.rank]}">${r.rank}</span>`;
+ $('rAdv').classList.toggle('hide',!r.advice);$('rAdv').textContent='💡 改善点:'+(r.advice||'');$('rCom').textContent=r.comment;$('note').textContent='';
+ $('rBrk').textContent=r.brk.map(([k,v])=>{const n=Math.round(clamp(v)*5);return k+' '+'★'.repeat(n)+'☆'.repeat(5-n)}).join('\n');
+ const g=$('rcv').getContext('2d');g.fillStyle='#f7d98a';g.fillRect(0,0,360,320);drawDish(g,180,160,115,r.s,r.seed);
+ chime();show('scrResult');prep();
+}
+function prep(){shareFile=null;$('shareImg').classList.add('hide');$('imgNote').classList.add('hide');
+ makeShare(R_).toBlob(b=>{shareFile=new File([b],'scrambled-egg.png',{type:'image/png'});if(shareUrl)URL.revokeObjectURL(shareUrl);shareUrl=URL.createObjectURL(b);$('shareImg').src=shareUrl;$('shareImg').classList.remove('hide');$('imgNote').classList.remove('hide')},'image/png')}
+let shareUrl=null;
+async function share(){
+ const r=R_,text=`『${r.title}』が完成しました。${r.score}点、${r.rank}${r.rank=='完璧'?'!':'……'} #${GAME_NAME} https://oi-so.github.io/scrambled_eggs/`,xu='https://twitter.com/intent/tweet?text='+encodeURIComponent(text);
+ if(!shareFile){$('note').textContent='画像を生成中です。少し待ってからもう一度押してください。';return}
+ const f=shareFile;let cp=null;
+ try{cp=navigator.clipboard.write([new ClipboardItem({'image/png':f})])}catch(e){}
+ window.open(xu,'_blank');
+ let ok=false;try{await cp;ok=!!cp}catch(e){}
+ if(!ok){const u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download='scrambled-egg.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),10000)}
+ $('note').innerHTML=ok?'<b>📋 画像をコピーしました。Xの投稿欄を長押しして「ペースト」で画像を貼り付けてください。</b>(自動では添付されません。投稿はあなたが確認して実行します)':'<b>画像を保存しました。Xの投稿欄から、保存した画像を選んでください。</b>'
+}
+const dl=$('dial'),dc=dl.getContext('2d');let dialOn=false;
+function drawDial(){const g=dc,h=S?S.heatLevel:0;g.clearRect(0,0,140,140);g.lineCap='butt';
+ for(let i=0;i<27;i++){const st=(-225+i*10)*Math.PI/180;g.beginPath();g.arc(70,70,60,st,st+.19);g.strokeStyle=rgb(mix([80,150,230],[230,70,30],i/26));g.lineWidth=7;g.stroke()}
+ circ(g,70,70,44,grad(g,70,70,44,'#4a4a50','#17171a'));
+ const a=(-135+h*27-90)*Math.PI/180;g.beginPath();g.moveTo(70+Math.cos(a)*14,70+Math.sin(a)*14);g.lineTo(70+Math.cos(a)*38,70+Math.sin(a)*38);g.strokeStyle='#f4ead6';g.lineWidth=5;g.lineCap='round';g.stroke();
+ g.fillStyle='#4a3420';g.font='bold 13px '+F;g.fillText('弱',16,134);g.fillText('強',112,134)}
+function setHeat(e){if(!S)return;const r=dl.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*140-70,y=(e.clientY-r.top)/r.height*140-70;
+ const a=Math.max(-135,Math.min(135,Math.atan2(x,-y)*57.2958));const nh=(a+135)/27;if(Math.round(nh)!=Math.round(S.heatLevel))noise(.02,.35,3000,'highpass');S.heatLevel=nh;drawDial()}
+dl.onpointerdown=e=>{dialOn=true;dl.setPointerCapture(e.pointerId);setHeat(e)};dl.onpointermove=e=>{if(dialOn)setHeat(e)};dl.onpointerup=dl.onpointercancel=()=>{dialOn=false};
+$('start').onclick=begin;$('retry').onclick=begin;$('done').onclick=finish;$('share').onclick=share;
+</script></body></html>
